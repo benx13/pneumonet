@@ -250,3 +250,24 @@ def masked(img, gt, mask, alpha=1):
 
     img_masked = color.hsv2rgb(img_hsv)
     return img_masked
+
+
+def f_masked(img, gt, mask, alpha=1):
+    """Returns image with GT lung field outlined with red, predicted lung field
+    filled with blue."""
+
+    rows, cols = img.shape
+    color_mask = np.zeros((rows, cols, 3))
+    boundary = morphology.dilation(gt, morphology.disk(3)) - gt
+
+    color_mask[mask == 1] = [0, 1, 1]
+    color_mask[boundary == 1] = [1, 0, 0]
+    img_color = np.dstack((img, img, img))
+
+    img_hsv = color.rgb2hsv(img_color)
+    color_mask_hsv = color.rgb2hsv(color_mask)
+
+    img_hsv[..., 0] = color_mask_hsv[..., 0]
+    img_hsv[..., 1] = color_mask_hsv[..., 1] * alpha
+    img_masked = color.hsv2rgb(img_hsv)
+    return img_masked
