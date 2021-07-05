@@ -1,0 +1,165 @@
+from src.utils.utils import *
+
+
+def export_histogram(
+        image,
+        normalized,
+        equalized,
+):
+    plt.xlabel('Pixel')
+    plt.ylabel('Count')
+
+    (hist, bins) = histogram(image)
+    plt.plot(bins, hist, label='Original Image')
+    plt.legend()
+
+    (hist, bins) = histogram(normalized)
+    plt.plot(bins, hist, label='Normalized Image')
+    plt.legend()
+
+    (hist, bins) = histogram(equalized)
+    plt.plot(bins, hist, label='CLAHE Result')
+    plt.legend()
+
+
+class CLAHE:
+    """Contrast Limited Adaptive Histogram Equalization.
+....In reality, we do a normalization before applying CLAHE, making it the N-CLAHE method, but in
+....N-CLAHE the normalization is done using a log function, instead of a linear one, as we use here.
+...."""
+
+    def __init__(
+            self,
+            window_size=100,
+            clip_limit=150,
+            n_iter=1,
+    ):
+        self.window_size = window_size
+        self.clip_limit = clip_limit
+        self.n_iter = n_iter
+
+    def set_window_size(self, window_size):
+        self.window_size = window_size
+
+    def set_clip_limit(self, clip_limit):
+        self.clip_limit = clip_limit
+
+    def set_n_iter(self, n_iter):
+        self.n_iter = n_iter
+
+    def run(self, image):
+        if len(image.shape) > 2:
+            image = to_grayscale(image)
+
+        normalized_image = normalize(np.min(image), np.max(image), 0,
+                                     255, image)
+
+        timeit.default_timer()
+        equalized_image = self.clahe(normalized_image)
+        timeit.default_timer()
+
+        return equalized_image
+
+    def clahe(self, image):
+        """Applies the CLAHE algorithm in an image.
+
+........Parameters:
+............image: image to be processed.
+
+........Returns a processed image.
+........"""
+
+        border = self.window_size // 2
+
+        padded_image = np.pad(image, border, 'reflect')
+        shape = padded_image.shape
+        padded_equalized_image = np.zeros(shape).astype(np.uint8)
+
+        for i in range(border, shape[0] - border):
+            if i % 50 == 0:
+                print('Line: ', i)
+            for j in range(border, shape[1] - border):
+
+                # Region to extract the histogram
+
+                region = padded_image[i - border:i + border + 1, j - border:j + border + 1]
+
+                # Calculating the histogram from region
+
+                (hist, bins) = histogram(region)
+
+                # Clipping the histogram
+
+                clip_histogram(hist, bins,
+                               self.clip_limit)
+
+                # Trying to reduce the values above clipping
+
+                for _ in range(self.n_iter):
+                    clip_histogram(hist, bins,
+                                   self.clip_limit)
+
+                # Calculating the CDF
+
+                cdf = calculate_cdf(hist, bins)
+
+                # Changing the value of the image to the result from the CDF for the given pixel
+
+                padded_equalized_image[i][j] = cdf[padded_image[i][j]]
+
+        # Removing the padding from the image
+
+        equalized_image = padded_equalized_image[border:shape[0] - border, border:shape[1] - border].astype(np.uint8)
+
+        return equalized_image
+
+    def clipped_histogram_equalization(self, region):
+        """Calculates the clipped histogram equalization for the given region.
+
+........Parameters:
+............region: array-like.
+
+........Returns a dictionary with the CDF for each pixel in the region.
+........"""
+
+        # Building the histogram
+
+        (hist, bins) = histogram(region)
+        n_bins = len(bins)
+
+        # Removing values above clip_limit
+
+        excess = 0
+        for i in range(n_bins):
+            if hist[i] > self.clip_limit:
+                excess += hist[i] - self.clip_limit
+                hist[i] = self.clip_limit
+
+        # # Redistributing exceeding values ##
+        # Calculating the values to be put on all bins
+
+        for_each_bin = excess // n_bins
+
+        # Calculating the values left
+
+        leftover = excess % n_bins
+
+        hist += for_each_bin
+        for i in range(leftover):
+            hist[i] += 1
+
+        # Calculating probability for each pixel
+
+        pixel_probability = hist / hist.sum()
+
+        # Calculating the CDF (Cumulative Distribution Function)
+
+        cdf = np.cumsum(pixel_probability)
+
+        cdf_normalized = cdf * 255
+
+        hist_eq = {}
+        for i in range(len(cdf)):
+            hist_eq[bins[i]] = int(cdf_normalized[i])
+
+        return hist_eq
